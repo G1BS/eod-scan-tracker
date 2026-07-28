@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0A0C10">
+<title>Scan Log</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --void:#0A0C10;
+    --panel:#12151B;
+    --panel-raised:#181C24;
+    --hairline:#232833;
+    --text:#E8EAED;
+    --dim:#7C8494;
+    --gain:#1FCE7A;
+    --loss:#F0455C;
+    --gold:#E8B330;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--void); color:var(--text);
+    font-family:'Inter',system-ui,sans-serif; height:100%; overscroll-behavior-y:none;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+
+  #app{max-width:520px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column;}
+
+  /* ---- Auth screen ---- */
+  #auth{display:flex; flex-direction:column; justify-content:center; align-items:center;
+    height:100vh; padding:32px; gap:18px; text-align:center;}
+  #auth .brand{font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px;
+    color:var(--gold); text-transform:uppercase;}
+  #auth h1{font-size:22px; margin:0; font-weight:600;}
+  #auth p{color:var(--dim); font-size:14px; margin:0; max-width:280px;}
+  #auth input{width:100%; max-width:280px; padding:14px 16px; border-radius:10px; border:1px solid var(--hairline);
+    background:var(--panel); color:var(--text); font-size:15px; font-family:'Inter',sans-serif;}
+  #auth button{width:100%; max-width:280px; padding:14px; border-radius:10px; border:none;
+    background:var(--gold); color:#0A0C10; font-weight:700; font-size:15px;}
+  #auth .msg{font-size:13px; color:var(--gain);}
+
+  /* ---- Header ---- */
+  header{position:sticky; top:0; z-index:10; background:var(--void); border-bottom:1px solid var(--hairline);
+    padding:14px 16px 0 16px;}
+  header .row1{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;}
+  header .date{font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--dim); letter-spacing:0.5px;}
+  header .title{font-size:17px; font-weight:700;}
+  #datepick{background:transparent; border:none; color:var(--dim); font-family:'JetBrains Mono',monospace;
+    font-size:13px;}
+
+  #tabs{display:flex; gap:6px; overflow-x:auto; padding-bottom:12px; scrollbar-width:none;}
+  #tabs::-webkit-scrollbar{display:none;}
+  .tab{flex:0 0 auto; padding:7px 14px; border-radius:999px; font-size:13px; font-weight:600;
+    background:var(--panel); color:var(--dim); border:1px solid var(--hairline); white-space:nowrap;}
+  .tab.active{background:var(--gold); color:#0A0C10; border-color:var(--gold);}
+  .tab .count{opacity:0.65; font-weight:500; margin-left:4px;}
+
+  /* ---- List ---- */
+  #list{flex:1; padding:14px 16px 90px 16px; overflow-y:auto;}
+  .empty{text-align:center; color:var(--dim); margin-top:60px; font-size:14px; line-height:1.6;}
+  .empty .big{font-size:32px; display:block; margin-bottom:10px; opacity:0.5;}
+
+  .card{background:var(--panel); border:1px solid var(--hairline); border-radius:12px;
+    padding:14px 14px 12px 14px; margin-bottom:10px; transition:background 0.15s;}
+  .card.taken{opacity:0.55;}
+  .card .top{display:flex; justify-content:space-between; align-items:center;}
+  .ticker{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px; letter-spacing:0.3px;}
+  .ticker.taken-strike{text-decoration:line-through; color:var(--dim);}
+  .score{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px;}
+  .score.hi{color:var(--gain);} .score.mid{color:var(--gold);} .score.lo{color:var(--loss);}
+
+  .bar{height:5px; border-radius:3px; background:#20242E; margin:9px 0 10px 0; overflow:hidden; position:relative;}
+  .bar .fill{height:100%; border-radius:3px;}
+
+  .meta-row{display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace;
+    font-size:12.5px; color:var(--dim); margin-bottom:2px;}
+  .meta-row b{color:var(--text); font-weight:600;}
+  .stage{font-size:12px; color:var(--dim); margin-top:6px; font-style:italic;}
+
+  .card-actions{display:flex; gap:8px; margin-top:10px; align-items:center;}
+  .taken-toggle{font-family:'JetBrains Mono',monospace; font-size:12px; padding:6px 10px; border-radius:6px;
+    border:1px solid var(--hairline); background:var(--panel-raised); color:var(--dim);}
+  .taken-toggle.on{color:var(--gain); border-color:var(--gain);}
+  .notes-btn{font-size:12px; color:var(--dim); border:1px solid var(--hairline); background:var(--panel-raised);
+    padding:6px 10px; border-radius:6px;}
+  .notes-area{width:100%; margin-top:10px; background:var(--panel-raised); border:1px solid var(--hairline);
+    border-radius:8px; color:var(--text); font-family:'Inter',sans-serif; font-size:13.5px; padding:10px;
+    resize:none; display:none;}
+  .notes-area.show{display:block;}
+
+  #refresh{position:fixed; bottom:20px; right:20px; width:52px; height:52px; border-radius:50%;
+    background:var(--gold); border:none; font-size:20px; box-shadow:0 4px 14px rgba(0,0,0,0.4);}
+  #signout{position:fixed; top:14px; right:16px; font-size:11px; color:var(--dim); background:none; border:none;
+    font-family:'JetBrains Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="auth" style="display:none;">
+    <div class="brand">Scan&nbsp;Log</div>
+    <h1>Private EOD tracker</h1>
+    <p>Sign in with a magic link — only your email can ever access this.</p>
+    <input id="email-input" type="email" placeholder="you@example.com" autocomplete="email">
+    <button id="send-link">Send magic link</button>
+    <div class="msg" id="auth-msg"></div>
+  </div>
+
+  <div id="main" style="display:none;">
+    <button id="signout">SIGN OUT</button>
+    <header>
+      <div class="row1">
+        <div class="title">Scan Log</div>
+        <input type="date" id="datepick" class="mono">
+      </div>
+      <div id="tabs"></div>
+    </header>
+    <div id="list"></div>
+    <button id="refresh">⟳</button>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// CONFIG — fill these in from your Supabase project settings
+// (Project Settings -> API). The anon key is safe to expose here;
+// Row Level Security locks reads/writes to signed-in users only.
+// ============================================================
+const SUPABASE_URL = "https://vnvtcqadhhpywlvysjqu.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_S51-uhmaZLjN3ELgChOX9A_gY5Jn2Vt";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentDate = new Date().toISOString().slice(0,10);
+let currentStrategy = null;
+let rowsCache = [];
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- Auth ----------
+async function checkSession(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (session) { showMain(); } else { $("auth").style.display="flex"; }
+}
+
+$("send-link").onclick = async () => {
+  const email = $("email-input").value.trim();
+  if (!email) return;
+  const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.href }});
+  $("auth-msg").textContent = error ? "Error sending link." : "Check your email for the link.";
+};
+
+$("signout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+sb.auth.onAuthStateChange((event, session) => { if (session) showMain(); });
+
+function showMain(){
+  $("auth").style.display="none";
+  $("main").style.display="block";
+  $("datepick").value = currentDate;
+  loadStrategies();
+}
+
+// ---------- Data loading ----------
+async function loadStrategies(){
+  const { data, error } = await sb.from("scan_results").select("strategy").eq("scan_date", currentDate);
+  if (error) { console.error(error); return; }
+  const counts = {};
+  data.forEach(r => counts[r.strategy] = (counts[r.strategy]||0) + 1);
+  const strategies = Object.keys(counts).sort();
+  renderTabs(strategies, counts);
+  currentStrategy = strategies.includes(currentStrategy) ? currentStrategy : (strategies[0] || null);
+  loadRows();
+}
+
+function renderTabs(strategies, counts){
+  const tabsEl = $("tabs");
+  if (strategies.length === 0){
+    tabsEl.innerHTML = "";
+    return;
+  }
+  tabsEl.innerHTML = strategies.map(s => `
+    <button class="tab ${s===currentStrategy?'active':''}" data-s="${s}">
+      ${s}<span class="count">${counts[s]}</span>
+    </button>`).join("");
+  tabsEl.querySelectorAll(".tab").forEach(btn => {
+    btn.onclick = () => { currentStrategy = btn.dataset.s; renderTabs(strategies, counts); loadRows(); };
+  });
+}
+
+async function loadRows(){
+  const listEl = $("list");
+  if (!currentStrategy){
+    listEl.innerHTML = `<div class="empty"><span class="big">—</span>No scans logged for this date yet.</div>`;
+    return;
+  }
+  const { data, error } = await sb.from("scan_results").select("*")
+    .eq("scan_date", currentDate).eq("strategy", currentStrategy)
+    .order("score", { ascending:false, nullsFirst:false });
+  if (error){ console.error(error); return; }
+  rowsCache = data;
+  renderList(data);
+}
+
+function scoreBand(score){
+  if (score===null || score===undefined) return "mid";
+  if (score>=75) return "hi";
+  if (score>=50) return "mid";
+  return "lo";
+}
+function scoreColor(band){ return band==="hi" ? "var(--gain)" : band==="mid" ? "var(--gold)" : "var(--loss)"; }
+
+function renderList(rows){
+  const listEl = $("list");
+  if (rows.length===0){
+    listEl.innerHTML = `<div class="empty"><span class="big">—</span>No shortlisted tickers for this strategy today.</div>`;
+    return;
+  }
+  listEl.innerHTML = rows.map(r => {
+    const band = scoreBand(r.score);
+    const pct = r.score!=null ? Math.max(4, Math.min(100, r.score)) : 0;
+    return `
+    <div class="card ${r.taken?'taken':''}" data-id="${r.id}">
+      <div class="top">
+        <span class="ticker ${r.taken?'taken-strike':''}">${r.ticker}</span>
+        <span class="score ${band}">${r.score!=null ? r.score : '—'}</span>
+      </div>
+      <div class="bar"><div class="fill" style="width:${pct}%; background:${scoreColor(band)};"></div></div>
+      <div class="meta-row"><span>ENTRY <b>${r.entry ?? '—'}</b></span><span>STOP <b>${r.stop ?? '—'}</b></span><span>TARGET <b>${r.target ?? '—'}</b></span></div>
+      ${r.stage ? `<div class="stage">${r.stage}</div>` : ""}
+      <div class="card-actions">
+        <button class="taken-toggle ${r.taken?'on':''}" data-action="taken">${r.taken ? '[x] taken' : '[ ] taken'}</button>
+        <button class="notes-btn" data-action="notes">notes</button>
+      </div>
+      <textarea class="notes-area" placeholder="Add a note...">${r.notes ?? ''}</textarea>
+    </div>`;
+  }).join("");
+
+  listEl.querySelectorAll(".card").forEach(card => {
+    const id = card.dataset.id;
+    card.querySelector('[data-action="taken"]').onclick = async (e) => {
+      const row = rowsCache.find(r=>r.id===id);
+      const newVal = !row.taken;
+      e.target.textContent = newVal ? '[x] taken' : '[ ] taken';
+      e.target.classList.toggle('on', newVal);
+      card.classList.toggle('taken', newVal);
+      card.querySelector('.ticker').classList.toggle('taken-strike', newVal);
+      row.taken = newVal;
+      await sb.from("scan_results").update({ taken:newVal }).eq("id", id);
+    };
+    const notesArea = card.querySelector(".notes-area");
+    card.querySelector('[data-action="notes"]').onclick = () => notesArea.classList.toggle("show");
+    let saveTimer;
+    notesArea.oninput = () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        await sb.from("scan_results").update({ notes: notesArea.value }).eq("id", id);
+      }, 600);
+    };
+  });
+}
+
+$("datepick").onchange = (e) => { currentDate = e.target.value; loadStrategies(); };
+$("refresh").onclick = () => loadStrategies();
+
+checkSession();
+
+if ("serviceWorker" in navigator){
+  window.addEventListener("load", () => navigator.serviceWorker.register("service-worker.js"));
+}
+</script>
+</body>
+</html>
