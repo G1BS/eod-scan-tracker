@@ -12,6 +12,7 @@ Requires env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 
 import os
+import math
 from datetime import date
 
 import requests
@@ -50,7 +51,24 @@ def get_close_price(ticker: str):
     hist = yf.Ticker(sym).history(period="5d")
     if hist.empty:
         return None
-    return round(float(hist["Close"].iloc[-1]), 2)
+    closes = hist["Close"].dropna()  # drop any NaN rows (holidays, partial data)
+    if closes.empty:
+        return None
+    price = float(closes.iloc[-1])
+    if math.isnan(price) or math.isinf(price):
+        return None
+    return round(price, 2)
+
+
+def safe_num(x):
+    """Guard against NaN/Inf ever reaching a JSON payload."""
+    if x is None:
+        return None
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if (math.isnan(f) or math.isinf(f)) else f
 
 
 def classify(entry_price, direction, latest_price, target, prior_peak_favorable):
@@ -91,7 +109,7 @@ def main():
         try:
             price = get_close_price(ticker)
             if price is None:
-                print(f"  {ticker}: no price data, skipping.")
+                print(f"  {ticker}: no valid price data today (holiday/NaN), skipping.")
                 continue
 
             pct_change, peak_favorable, status = classify(
@@ -106,7 +124,7 @@ def main():
             requests.post(
                 f"{base_url}/rest/v1/watchlist_price_history",
                 headers={**headers, "Prefer": "resolution=merge-duplicates"},
-                json=[{"watchlist_id": item["id"], "price_date": today, "price": price}],
+                json=[{"watchlist_id": item["id"], "price_date": today, "price": safe_num(price)}],
             )
 
             # 2. Update the summary row
@@ -115,10 +133,10 @@ def main():
                 headers=headers,
                 params={"id": f"eq.{item['id']}"},
                 json={
-                    "latest_price": price,
+                    "latest_price": safe_num(price),
                     "latest_price_date": today,
-                    "pct_change": round(pct_change, 2),
-                    "peak_favorable_pct": round(peak_favorable, 2),
+                    "pct_change": safe_num(round(pct_change, 2)),
+                    "peak_favorable_pct": safe_num(round(peak_favorable, 2)),
                     "computed_status": status,
                 },
             )

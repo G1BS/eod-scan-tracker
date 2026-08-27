@@ -91,7 +91,7 @@
     resize:none; display:none;}
   .notes-area.show{display:block;}
 
-  #refresh{position:fixed; bottom:20px; right:20px; width:52px; height:52px; border-radius:50%;
+  #refresh{position:fixed; bottom:20px; left:20px; width:52px; height:52px; border-radius:50%;
     background:var(--gold); border:none; font-size:20px; box-shadow:0 4px 14px rgba(0,0,0,0.4);}
   #signout{position:fixed; top:14px; right:16px; font-size:11px; color:var(--dim); background:none; border:none;
     font-family:'JetBrains Mono',monospace;}
@@ -369,11 +369,14 @@ $("view-scans").onclick = () => setView("scans");
 $("view-watchlist").onclick = () => setView("watchlist");
 
 // ---------- Watchlist: load + render ----------
+let wlCache = [];
+
 async function loadWatchlist(){
   const el = $("watchlist-list");
   const { data, error } = await sb.from("watchlist_items").select("*")
     .eq("status", "active").order("added_at", { ascending:false });
   if (error){ console.error(error); el.innerHTML = `<div class="empty">Couldn't load watchlist.</div>`; return; }
+  wlCache = data;
   if (data.length===0){
     el.innerHTML = `<div class="empty"><span class="big">—</span>Nothing on your watchlist yet.<br>Tap + to add a stock.</div>`;
     return;
@@ -384,6 +387,9 @@ async function loadWatchlist(){
       await sb.from("watchlist_items").update({ status:"closed" }).eq("id", btn.dataset.id);
       loadWatchlist();
     };
+  });
+  el.querySelectorAll(".wl-edit").forEach(btn => {
+    btn.onclick = () => openEditForm(btn.dataset.id);
   });
 }
 
@@ -413,15 +419,45 @@ function renderWatchlistCard(item){
       ${item.target ? `<div class="wl-meta"><span>TARGET <b>${item.target}</b></span></div>` : ""}
       ${item.reason ? `<div class="wl-reason">${item.reason}</div>` : ""}
       <div class="wl-actions">
+        <button class="wl-edit" data-id="${item.id}">Edit</button>
         <button class="wl-close" data-id="${item.id}">Archive</button>
       </div>
     </div>`;
 }
 
-// ---------- Add-stock form ----------
+// ---------- Add / Edit stock form ----------
 let selectedDir = "bullish";
-$("fab-add").onclick = () => $("add-form-overlay").classList.add("show");
-$("cancel-add").onclick = () => $("add-form-overlay").classList.remove("show");
+let editingId = null;
+
+function resetForm(){
+  editingId = null;
+  $("wl-ticker").value=""; $("wl-entry").value=""; $("wl-target").value=""; $("wl-reason").value="";
+  $("wl-ticker").disabled = false;
+  selectedDir = "bullish";
+  $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected");
+  document.querySelector("#add-form h3").textContent = "Add to watchlist";
+  $("save-add").textContent = "Save";
+}
+
+function openEditForm(id){
+  const item = wlCache.find(r => r.id === id);
+  if (!item) return;
+  editingId = id;
+  $("wl-ticker").value = item.ticker;
+  $("wl-ticker").disabled = true; // ticker isn't editable once created, avoids orphaning price history
+  $("wl-entry").value = item.entry_price;
+  $("wl-target").value = item.target ?? "";
+  $("wl-reason").value = item.reason ?? "";
+  selectedDir = item.direction;
+  $("dir-bullish").classList.toggle("selected", selectedDir==="bullish");
+  $("dir-bearish").classList.toggle("selected", selectedDir==="bearish");
+  document.querySelector("#add-form h3").textContent = "Edit watchlist item";
+  $("save-add").textContent = "Update";
+  $("add-form-overlay").classList.add("show");
+}
+
+$("fab-add").onclick = () => { resetForm(); $("add-form-overlay").classList.add("show"); };
+$("cancel-add").onclick = () => { $("add-form-overlay").classList.remove("show"); resetForm(); };
 $("dir-bullish").onclick = () => { selectedDir="bullish"; $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected"); };
 $("dir-bearish").onclick = () => { selectedDir="bearish"; $("dir-bearish").classList.add("selected"); $("dir-bullish").classList.remove("selected"); };
 
@@ -432,16 +468,28 @@ $("save-add").onclick = async () => {
   const reason = $("wl-reason").value.trim();
   if (!ticker || !entry){ alert("Ticker and entry price are required."); return; }
 
-  const { error } = await sb.from("watchlist_items").insert({
-    ticker, entry_price: entry, direction: selectedDir, target, reason,
-    latest_price: entry, latest_price_date: new Date().toISOString().slice(0,10),
-    pct_change: 0, peak_favorable_pct: 0, computed_status: "Flat"
-  });
+  let error;
+  if (editingId){
+    // Editing: only target/direction/reason/entry_price change; re-classify against the last known price.
+    const item = wlCache.find(r => r.id === editingId);
+    const latest = item.latest_price ?? entry;
+    const sign = selectedDir === "bullish" ? 1 : -1;
+    const pctChange = (latest - entry) / entry * 100;
+    ({ error } = await sb.from("watchlist_items").update({
+      entry_price: entry, direction: selectedDir, target, reason,
+      pct_change: Math.round(pctChange * 100) / 100,
+    }).eq("id", editingId));
+  } else {
+    ({ error } = await sb.from("watchlist_items").insert({
+      ticker, entry_price: entry, direction: selectedDir, target, reason,
+      latest_price: entry, latest_price_date: new Date().toISOString().slice(0,10),
+      pct_change: 0, peak_favorable_pct: 0, computed_status: "Flat"
+    }));
+  }
   if (error){ alert("Couldn't save: " + error.message); return; }
 
-  $("wl-ticker").value=""; $("wl-entry").value=""; $("wl-target").value=""; $("wl-reason").value="";
-  selectedDir="bullish"; $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected");
   $("add-form-overlay").classList.remove("show");
+  resetForm();
   loadWatchlist();
 };
 
