@@ -95,6 +95,55 @@
     background:var(--gold); border:none; font-size:20px; box-shadow:0 4px 14px rgba(0,0,0,0.4);}
   #signout{position:fixed; top:14px; right:16px; font-size:11px; color:var(--dim); background:none; border:none;
     font-family:'JetBrains Mono',monospace;}
+
+  /* ---- View switch (Scans / Watchlist) ---- */
+  #view-switch{display:flex; gap:6px; margin-bottom:12px;}
+  #view-switch button{flex:1; padding:9px; border-radius:8px; font-size:13px; font-weight:700;
+    background:var(--panel); color:var(--dim); border:1px solid var(--hairline); font-family:'Inter',sans-serif;}
+  #view-switch button.active{background:var(--text); color:#0A0C10; border-color:var(--text);}
+
+  /* ---- Watchlist ---- */
+  .badge{font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; padding:3px 8px;
+    border-radius:5px; letter-spacing:0.3px; white-space:nowrap;}
+  .badge.as-expected, .badge.target-hit{background:rgba(31,206,122,0.14); color:var(--gain);}
+  .badge.against-expectation{background:rgba(240,69,92,0.14); color:var(--loss);}
+  .badge.reversed{background:rgba(232,179,48,0.14); color:var(--gold);}
+  .badge.flat{background:rgba(124,132,148,0.14); color:var(--dim);}
+
+  .wl-card .top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .wl-card .dir{font-size:11px; color:var(--dim); margin-left:6px;}
+  .wl-meta{display:flex; gap:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px;
+    color:var(--dim); margin-top:8px;}
+  .wl-meta b{color:var(--text);}
+  .wl-reason{font-size:12px; color:var(--dim); margin-top:6px; font-style:italic;}
+  .wl-actions{display:flex; gap:8px; margin-top:10px;}
+  .wl-actions button{font-size:12px; padding:6px 10px; border-radius:6px; border:1px solid var(--hairline);
+    background:var(--panel-raised); color:var(--dim); font-family:'JetBrains Mono',monospace;}
+
+  #fab-add{position:fixed; bottom:20px; right:20px; width:52px; height:52px; border-radius:50%;
+    background:var(--gold); border:none; font-size:26px; box-shadow:0 4px 14px rgba(0,0,0,0.4); color:#0A0C10;}
+
+  #add-form-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.6); display:none; align-items:flex-end;
+    z-index:50;}
+  #add-form-overlay.show{display:flex;}
+  #add-form{background:var(--panel); border-top:1px solid var(--hairline); border-radius:16px 16px 0 0;
+    padding:20px 18px 26px 18px; width:100%; max-width:520px; margin:0 auto;}
+  #add-form h3{margin:0 0 14px 0; font-size:16px;}
+  #add-form label{font-size:12px; color:var(--dim); display:block; margin:10px 0 5px 0;}
+  #add-form input, #add-form textarea{width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--hairline);
+    background:var(--panel-raised); color:var(--text); font-size:14px; font-family:'Inter',sans-serif;}
+  #add-form textarea{resize:none; height:56px;}
+  .dir-toggle{display:flex; gap:8px; margin-top:5px;}
+  .dir-toggle button{flex:1; padding:9px; border-radius:8px; border:1px solid var(--hairline);
+    background:var(--panel-raised); color:var(--dim); font-size:13px; font-weight:600;}
+  .dir-toggle button.selected.bullish{background:rgba(31,206,122,0.14); color:var(--gain); border-color:var(--gain);}
+  .dir-toggle button.selected.bearish{background:rgba(240,69,92,0.14); color:var(--loss); border-color:var(--loss);}
+  #add-form .form-row{display:flex; gap:10px;}
+  #add-form .form-row > div{flex:1;}
+  #add-form .submit-row{display:flex; gap:10px; margin-top:16px;}
+  #add-form .submit-row button{flex:1; padding:13px; border-radius:9px; font-size:14px; font-weight:700; border:none;}
+  #cancel-add{background:var(--panel-raised); color:var(--dim);}
+  #save-add{background:var(--gold); color:#0A0C10;}
 </style>
 </head>
 <body>
@@ -116,10 +165,45 @@
         <div class="title">Scan Log</div>
         <input type="date" id="datepick" class="mono">
       </div>
+      <div id="view-switch">
+        <button id="view-scans" class="active">SCANS</button>
+        <button id="view-watchlist">WATCHLIST</button>
+      </div>
       <div id="tabs"></div>
     </header>
     <div id="list"></div>
+    <div id="watchlist-list" style="display:none; padding:14px 16px 90px 16px; overflow-y:auto; flex:1;"></div>
     <button id="refresh">⟳</button>
+    <button id="fab-add" style="display:none;">+</button>
+  </div>
+
+  <div id="add-form-overlay">
+    <div id="add-form">
+      <h3>Add to watchlist</h3>
+      <label>Ticker</label>
+      <input id="wl-ticker" type="text" placeholder="e.g. RELIANCE" autocapitalize="characters">
+      <div class="form-row">
+        <div>
+          <label>Entry price</label>
+          <input id="wl-entry" type="number" step="0.05" placeholder="2950">
+        </div>
+        <div>
+          <label>Target (optional)</label>
+          <input id="wl-target" type="number" step="0.05" placeholder="3150">
+        </div>
+      </div>
+      <label>Direction</label>
+      <div class="dir-toggle">
+        <button id="dir-bullish" class="selected bullish" data-dir="bullish">▲ Bullish</button>
+        <button id="dir-bearish" class="bearish" data-dir="bearish">▼ Bearish</button>
+      </div>
+      <label>Reason / notes (optional)</label>
+      <textarea id="wl-reason" placeholder="Why did you shortlist this?"></textarea>
+      <div class="submit-row">
+        <button id="cancel-add">Cancel</button>
+        <button id="save-add">Save</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -265,7 +349,102 @@ function renderList(rows){
 }
 
 $("datepick").onchange = (e) => { currentDate = e.target.value; loadStrategies(); };
-$("refresh").onclick = () => loadStrategies();
+$("refresh").onclick = () => { currentView==="scans" ? loadStrategies() : loadWatchlist(); };
+
+// ---------- View switching (Scans / Watchlist) ----------
+let currentView = "scans";
+
+function setView(view){
+  currentView = view;
+  $("view-scans").classList.toggle("active", view==="scans");
+  $("view-watchlist").classList.toggle("active", view==="watchlist");
+  $("tabs").style.display = view==="scans" ? "flex" : "none";
+  $("datepick").style.display = view==="scans" ? "block" : "none";
+  $("list").style.display = view==="scans" ? "block" : "none";
+  $("watchlist-list").style.display = view==="watchlist" ? "block" : "none";
+  $("fab-add").style.display = view==="watchlist" ? "block" : "none";
+  if (view==="watchlist") loadWatchlist(); else loadStrategies();
+}
+$("view-scans").onclick = () => setView("scans");
+$("view-watchlist").onclick = () => setView("watchlist");
+
+// ---------- Watchlist: load + render ----------
+async function loadWatchlist(){
+  const el = $("watchlist-list");
+  const { data, error } = await sb.from("watchlist_items").select("*")
+    .eq("status", "active").order("added_at", { ascending:false });
+  if (error){ console.error(error); el.innerHTML = `<div class="empty">Couldn't load watchlist.</div>`; return; }
+  if (data.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">—</span>Nothing on your watchlist yet.<br>Tap + to add a stock.</div>`;
+    return;
+  }
+  el.innerHTML = data.map(renderWatchlistCard).join("");
+  el.querySelectorAll(".wl-close").forEach(btn => {
+    btn.onclick = async () => {
+      await sb.from("watchlist_items").update({ status:"closed" }).eq("id", btn.dataset.id);
+      loadWatchlist();
+    };
+  });
+}
+
+function badgeClass(status){
+  return {
+    "As Expected":"as-expected", "Target Hit":"target-hit",
+    "Against Expectation":"against-expectation", "Reversed":"reversed", "Flat":"flat"
+  }[status] || "flat";
+}
+
+function renderWatchlistCard(item){
+  const addedDate = new Date(item.added_at).toLocaleDateString("en-IN", { day:"numeric", month:"short" });
+  const pct = item.pct_change;
+  const pctStr = pct!=null ? `${pct>0?'+':''}${pct.toFixed(2)}%` : "—";
+  const status = item.computed_status || "Flat";
+  return `
+    <div class="card wl-card">
+      <div class="top">
+        <div><span class="ticker">${item.ticker}</span><span class="dir">${item.direction==='bullish'?'▲':'▼'} ${item.direction}</span></div>
+        <span class="badge ${badgeClass(status)}">${status.toUpperCase()}</span>
+      </div>
+      <div class="wl-meta">
+        <span>ENTRY <b>${item.entry_price}</b> · ${addedDate}</span>
+        <span>NOW <b>${item.latest_price ?? '—'}</b></span>
+        <span>${pctStr}</span>
+      </div>
+      ${item.target ? `<div class="wl-meta"><span>TARGET <b>${item.target}</b></span></div>` : ""}
+      ${item.reason ? `<div class="wl-reason">${item.reason}</div>` : ""}
+      <div class="wl-actions">
+        <button class="wl-close" data-id="${item.id}">Archive</button>
+      </div>
+    </div>`;
+}
+
+// ---------- Add-stock form ----------
+let selectedDir = "bullish";
+$("fab-add").onclick = () => $("add-form-overlay").classList.add("show");
+$("cancel-add").onclick = () => $("add-form-overlay").classList.remove("show");
+$("dir-bullish").onclick = () => { selectedDir="bullish"; $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected"); };
+$("dir-bearish").onclick = () => { selectedDir="bearish"; $("dir-bearish").classList.add("selected"); $("dir-bullish").classList.remove("selected"); };
+
+$("save-add").onclick = async () => {
+  const ticker = $("wl-ticker").value.trim().toUpperCase();
+  const entry = parseFloat($("wl-entry").value);
+  const target = $("wl-target").value ? parseFloat($("wl-target").value) : null;
+  const reason = $("wl-reason").value.trim();
+  if (!ticker || !entry){ alert("Ticker and entry price are required."); return; }
+
+  const { error } = await sb.from("watchlist_items").insert({
+    ticker, entry_price: entry, direction: selectedDir, target, reason,
+    latest_price: entry, latest_price_date: new Date().toISOString().slice(0,10),
+    pct_change: 0, peak_favorable_pct: 0, computed_status: "Flat"
+  });
+  if (error){ alert("Couldn't save: " + error.message); return; }
+
+  $("wl-ticker").value=""; $("wl-entry").value=""; $("wl-target").value=""; $("wl-reason").value="";
+  selectedDir="bullish"; $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected");
+  $("add-form-overlay").classList.remove("show");
+  loadWatchlist();
+};
+
 
 checkSession();
 
