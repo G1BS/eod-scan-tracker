@@ -46,6 +46,8 @@ create policy "authenticated insert watchlist" on watchlist_items
   for insert with check (auth.role() = 'authenticated');
 create policy "authenticated update watchlist" on watchlist_items
   for update using (auth.role() = 'authenticated');
+create policy "authenticated delete watchlist" on watchlist_items
+  for delete using (auth.role() = 'authenticated');
 
 create policy "authenticated read watchlist history" on watchlist_price_history
   for select using (auth.role() = 'authenticated');

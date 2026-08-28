@@ -467,7 +467,8 @@ async function loadWatchlist(){
       const item = wlCache.find(r => r.id === btn.dataset.id);
       if (!confirm(`Permanently delete ${item.ticker} and all its tracked price history? This can't be undone.`)) return;
 
-      await sb.from("watchlist_items").delete().eq("id", btn.dataset.id);
+      const { error: delErr } = await sb.from("watchlist_items").delete().eq("id", btn.dataset.id);
+      if (delErr){ alert("Couldn't delete: " + delErr.message); return; }
       // If this came from a scan, un-mark it so it's trackable again and
       // falls back into the normal untracked-scan cleanup rotation.
       if (item.source_scan_id){
