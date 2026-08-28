@@ -84,6 +84,9 @@
   .taken-toggle{font-family:'JetBrains Mono',monospace; font-size:12px; padding:6px 10px; border-radius:6px;
     border:1px solid var(--hairline); background:var(--panel-raised); color:var(--dim);}
   .taken-toggle.on{color:var(--gain); border-color:var(--gain);}
+  .track-btn{font-family:'JetBrains Mono',monospace; font-size:12px; padding:6px 10px; border-radius:6px;
+    border:1px solid var(--gold); background:transparent; color:var(--gold);}
+  .track-btn.tracked{color:var(--dim); border-color:var(--hairline); background:var(--panel-raised);}
   .notes-btn{font-size:12px; color:var(--dim); border:1px solid var(--hairline); background:var(--panel-raised);
     padding:6px 10px; border-radius:6px;}
   .notes-area{width:100%; margin-top:10px; background:var(--panel-raised); border:1px solid var(--hairline);
@@ -140,6 +143,14 @@
   .dir-toggle button.selected.bearish{background:rgba(240,69,92,0.14); color:var(--loss); border-color:var(--loss);}
   #add-form .form-row{display:flex; gap:10px;}
   #add-form .form-row > div{flex:1;}
+  .fetch-btn{font-size:10.5px; padding:2px 7px; border-radius:5px; border:1px solid var(--gold);
+    background:transparent; color:var(--gold); margin-left:6px; font-family:'JetBrains Mono',monospace;}
+  .fetch-status{font-size:11px; color:var(--dim); margin-top:4px; min-height:14px;}
+  .fetch-status.ok{color:var(--gain);}
+  .fetch-status.err{color:var(--loss);}
+  .spark-holder{margin-top:10px; background:var(--panel-raised); border-radius:8px; padding:6px 8px;}
+  .spark-holder .sparkline{width:100%; height:46px; display:block;}
+  .spark-empty{font-size:11px; color:var(--dim); text-align:center; padding:14px 0;}
   #add-form .submit-row{display:flex; gap:10px; margin-top:16px;}
   #add-form .submit-row button{flex:1; padding:13px; border-radius:9px; font-size:14px; font-weight:700; border:none;}
   #cancel-add{background:var(--panel-raised); color:var(--dim);}
@@ -170,6 +181,7 @@
         <button id="view-watchlist">WATCHLIST</button>
       </div>
       <div id="tabs"></div>
+      <div id="wl-tabs" style="display:none;"></div>
     </header>
     <div id="list"></div>
     <div id="watchlist-list" style="display:none; padding:14px 16px 90px 16px; overflow-y:auto; flex:1;"></div>
@@ -184,8 +196,9 @@
       <input id="wl-ticker" type="text" placeholder="e.g. RELIANCE" autocapitalize="characters">
       <div class="form-row">
         <div>
-          <label>Entry price</label>
+          <label>Entry price <button id="fetch-price-btn" type="button" class="fetch-btn">fetch latest</button></label>
           <input id="wl-entry" type="number" step="0.05" placeholder="2950">
+          <div id="fetch-status" class="fetch-status"></div>
         </div>
         <div>
           <label>Target (optional)</label>
@@ -319,6 +332,7 @@ function renderList(rows){
       <div class="card-actions">
         <button class="taken-toggle ${r.taken?'on':''}" data-action="taken">${r.taken ? '[x] taken' : '[ ] taken'}</button>
         <button class="notes-btn" data-action="notes">notes</button>
+        <button class="track-btn ${r.tracked?'tracked':''}" data-action="track" ${r.tracked?'disabled':''}>${r.tracked ? '✓ tracked' : 'track'}</button>
       </div>
       <textarea class="notes-area" placeholder="Add a note...">${r.notes ?? ''}</textarea>
     </div>`;
@@ -338,6 +352,30 @@ function renderList(rows){
     };
     const notesArea = card.querySelector(".notes-area");
     card.querySelector('[data-action="notes"]').onclick = () => notesArea.classList.toggle("show");
+
+    const trackBtn = card.querySelector('[data-action="track"]');
+    if (trackBtn && !trackBtn.disabled){
+      trackBtn.onclick = async () => {
+        const row = rowsCache.find(r=>r.id===id);
+        if (!row.entry){
+          alert("This scan has no entry price recorded — add it manually in the Watchlist tab instead.");
+          return;
+        }
+        trackBtn.disabled = true; trackBtn.textContent = "...";
+        const { error: insErr } = await sb.from("watchlist_items").insert({
+          ticker: row.ticker, entry_price: row.entry, direction: "bullish",
+          reason: `Auto-tracked from ${row.strategy} scan (${row.scan_date})`,
+          source_strategy: row.strategy, source_scan_id: row.id,
+          latest_price: row.entry, latest_price_date: row.scan_date,
+          pct_change: 0, peak_favorable_pct: 0, computed_status: "Flat"
+        });
+        if (insErr){ alert("Couldn't start tracking: " + insErr.message); trackBtn.disabled=false; trackBtn.textContent="track"; return; }
+        await sb.from("scan_results").update({ tracked:true }).eq("id", id);
+        row.tracked = true;
+        trackBtn.textContent = "✓ tracked";
+        trackBtn.classList.add("tracked");
+      };
+    }
     let saveTimer;
     notesArea.oninput = () => {
       clearTimeout(saveTimer);
@@ -362,6 +400,7 @@ function setView(view){
   $("datepick").style.display = view==="scans" ? "block" : "none";
   $("list").style.display = view==="scans" ? "block" : "none";
   $("watchlist-list").style.display = view==="watchlist" ? "block" : "none";
+  $("wl-tabs").style.display = view==="watchlist" ? "flex" : "none";
   $("fab-add").style.display = view==="watchlist" ? "block" : "none";
   if (view==="watchlist") loadWatchlist(); else loadStrategies();
 }
@@ -370,6 +409,7 @@ $("view-watchlist").onclick = () => setView("watchlist");
 
 // ---------- Watchlist: load + render ----------
 let wlCache = [];
+let wlFilter = "All";
 
 async function loadWatchlist(){
   const el = $("watchlist-list");
@@ -377,11 +417,21 @@ async function loadWatchlist(){
     .eq("status", "active").order("added_at", { ascending:false });
   if (error){ console.error(error); el.innerHTML = `<div class="empty">Couldn't load watchlist.</div>`; return; }
   wlCache = data;
-  if (data.length===0){
-    el.innerHTML = `<div class="empty"><span class="big">—</span>Nothing on your watchlist yet.<br>Tap + to add a stock.</div>`;
+
+  const sources = ["All", ...new Set(data.map(r => r.source_strategy || "Manual"))];
+  $("wl-tabs").innerHTML = sources.map(s => `
+    <button class="tab ${s===wlFilter?'active':''}" data-s="${s}">${s}</button>`).join("");
+  $("wl-tabs").querySelectorAll(".tab").forEach(btn => {
+    btn.onclick = () => { wlFilter = btn.dataset.s; loadWatchlist(); };
+  });
+
+  const rows = wlFilter==="All" ? data : data.filter(r => (r.source_strategy||"Manual")===wlFilter);
+
+  if (rows.length===0){
+    el.innerHTML = `<div class="empty"><span class="big">—</span>Nothing here yet.<br>Tap + to add a stock.</div>`;
     return;
   }
-  el.innerHTML = data.map(renderWatchlistCard).join("");
+  el.innerHTML = rows.map(renderWatchlistCard).join("");
   el.querySelectorAll(".wl-close").forEach(btn => {
     btn.onclick = async () => {
       await sb.from("watchlist_items").update({ status:"closed" }).eq("id", btn.dataset.id);
@@ -391,7 +441,49 @@ async function loadWatchlist(){
   el.querySelectorAll(".wl-edit").forEach(btn => {
     btn.onclick = () => openEditForm(btn.dataset.id);
   });
+
+  rows.forEach(item => loadSparkline(item));
 }
+
+async function loadSparkline(item){
+  const holder = document.getElementById(`spark-${item.id}`);
+  if (!holder) return;
+  const { data: hist, error } = await sb.from("watchlist_price_history").select("price_date,price")
+    .eq("watchlist_id", item.id).order("price_date", { ascending:true });
+  if (error) return;
+
+  const points = [{ date: item.added_at.slice(0,10), price: item.entry_price }, ...(hist||[])];
+  // de-dupe same-day entries, keep the later one
+  const byDate = {};
+  points.forEach(p => byDate[p.date] = p.price);
+  const series = Object.keys(byDate).sort().map(d => byDate[d]);
+
+  if (series.length < 2){ holder.innerHTML = `<div class="spark-empty">Chart fills in as daily prices come in.</div>`; return; }
+
+  holder.innerHTML = renderSparklineSVG(series, item.direction);
+}
+
+function renderSparklineSVG(series, direction){
+  const w = 280, h = 46, pad = 4;
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = (max - min) || 1;
+  const stepX = (w - pad*2) / (series.length - 1);
+  const favorable = direction === "bullish" ? series[series.length-1] >= series[0] : series[series.length-1] <= series[0];
+  const color = favorable ? "var(--gain)" : "var(--loss)";
+
+  const pts = series.map((v, i) => {
+    const x = pad + i*stepX;
+    const y = h - pad - ((v - min) / range) * (h - pad*2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const lastPt = pts.split(" ").pop().split(",");
+
+  return `<svg viewBox="0 0 ${w} ${h}" class="sparkline">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="2.5" fill="${color}"/>
+  </svg>`;
+}
+
 
 function badgeClass(status){
   return {
@@ -405,10 +497,11 @@ function renderWatchlistCard(item){
   const pct = item.pct_change;
   const pctStr = pct!=null ? `${pct>0?'+':''}${pct.toFixed(2)}%` : "—";
   const status = item.computed_status || "Flat";
+  const source = item.source_strategy || "Manual";
   return `
     <div class="card wl-card">
       <div class="top">
-        <div><span class="ticker">${item.ticker}</span><span class="dir">${item.direction==='bullish'?'▲':'▼'} ${item.direction}</span></div>
+        <div><span class="ticker">${item.ticker}</span><span class="dir">${item.direction==='bullish'?'▲':'▼'} ${item.direction} · ${source}</span></div>
         <span class="badge ${badgeClass(status)}">${status.toUpperCase()}</span>
       </div>
       <div class="wl-meta">
@@ -418,6 +511,7 @@ function renderWatchlistCard(item){
       </div>
       ${item.target ? `<div class="wl-meta"><span>TARGET <b>${item.target}</b></span></div>` : ""}
       ${item.reason ? `<div class="wl-reason">${item.reason}</div>` : ""}
+      <div class="spark-holder" id="spark-${item.id}"><div class="spark-empty">Loading chart...</div></div>
       <div class="wl-actions">
         <button class="wl-edit" data-id="${item.id}">Edit</button>
         <button class="wl-close" data-id="${item.id}">Archive</button>
@@ -433,11 +527,30 @@ function resetForm(){
   editingId = null;
   $("wl-ticker").value=""; $("wl-entry").value=""; $("wl-target").value=""; $("wl-reason").value="";
   $("wl-ticker").disabled = false;
+  $("fetch-status").textContent = ""; $("fetch-status").className = "fetch-status";
   selectedDir = "bullish";
   $("dir-bullish").classList.add("selected"); $("dir-bearish").classList.remove("selected");
   document.querySelector("#add-form h3").textContent = "Add to watchlist";
   $("save-add").textContent = "Save";
 }
+
+async function fetchLatestPrice(){
+  const ticker = $("wl-ticker").value.trim().toUpperCase();
+  const statusEl = $("fetch-status");
+  if (!ticker){ statusEl.textContent = "Type a ticker first."; statusEl.className = "fetch-status err"; return; }
+  statusEl.textContent = "Fetching..."; statusEl.className = "fetch-status";
+  const { data, error } = await sb.functions.invoke("get-quote", { body: { ticker } });
+  if (error || !data || data.error){
+    statusEl.textContent = "Couldn't auto-fetch — enter price manually.";
+    statusEl.className = "fetch-status err";
+    return;
+  }
+  $("wl-entry").value = data.price;
+  statusEl.textContent = `${data.price} as of ${data.date}`;
+  statusEl.className = "fetch-status ok";
+}
+$("fetch-price-btn").onclick = fetchLatestPrice;
+$("wl-ticker").addEventListener("blur", () => { if ($("wl-ticker").value.trim() && !editingId) fetchLatestPrice(); });
 
 function openEditForm(id){
   const item = wlCache.find(r => r.id === id);
