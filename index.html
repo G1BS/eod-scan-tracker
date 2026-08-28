@@ -105,6 +105,11 @@
     background:var(--panel); color:var(--dim); border:1px solid var(--hairline); font-family:'Inter',sans-serif;}
   #view-switch button.active{background:var(--text); color:#0A0C10; border-color:var(--text);}
 
+  #wl-status-switch{display:flex; gap:6px; margin-bottom:10px;}
+  #wl-status-switch button{flex:1; padding:7px; border-radius:7px; font-size:12px; font-weight:700;
+    background:var(--panel); color:var(--dim); border:1px solid var(--hairline); font-family:'JetBrains Mono',monospace;}
+  #wl-status-switch button.active{background:var(--gold); color:#0A0C10; border-color:var(--gold);}
+
   /* ---- Watchlist ---- */
   .badge{font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; padding:3px 8px;
     border-radius:5px; letter-spacing:0.3px; white-space:nowrap;}
@@ -181,6 +186,10 @@
         <button id="view-watchlist">WATCHLIST</button>
       </div>
       <div id="tabs"></div>
+      <div id="wl-status-switch" style="display:none;">
+        <button id="wl-status-active" class="active">ACTIVE</button>
+        <button id="wl-status-archived">ARCHIVED</button>
+      </div>
       <div id="wl-tabs" style="display:none;"></div>
     </header>
     <div id="list"></div>
@@ -400,6 +409,7 @@ function setView(view){
   $("datepick").style.display = view==="scans" ? "block" : "none";
   $("list").style.display = view==="scans" ? "block" : "none";
   $("watchlist-list").style.display = view==="watchlist" ? "block" : "none";
+  $("wl-status-switch").style.display = view==="watchlist" ? "flex" : "none";
   $("wl-tabs").style.display = view==="watchlist" ? "flex" : "none";
   $("fab-add").style.display = view==="watchlist" ? "block" : "none";
   if (view==="watchlist") loadWatchlist(); else loadStrategies();
@@ -410,11 +420,15 @@ $("view-watchlist").onclick = () => setView("watchlist");
 // ---------- Watchlist: load + render ----------
 let wlCache = [];
 let wlFilter = "All";
+let wlStatus = "active";
+
+$("wl-status-active").onclick = () => { wlStatus="active"; $("wl-status-active").classList.add("active"); $("wl-status-archived").classList.remove("active"); loadWatchlist(); };
+$("wl-status-archived").onclick = () => { wlStatus="closed"; $("wl-status-archived").classList.add("active"); $("wl-status-active").classList.remove("active"); loadWatchlist(); };
 
 async function loadWatchlist(){
   const el = $("watchlist-list");
   const { data, error } = await sb.from("watchlist_items").select("*")
-    .eq("status", "active").order("added_at", { ascending:false });
+    .eq("status", wlStatus).order("added_at", { ascending:false });
   if (error){ console.error(error); el.innerHTML = `<div class="empty">Couldn't load watchlist.</div>`; return; }
   wlCache = data;
 
@@ -428,13 +442,22 @@ async function loadWatchlist(){
   const rows = wlFilter==="All" ? data : data.filter(r => (r.source_strategy||"Manual")===wlFilter);
 
   if (rows.length===0){
-    el.innerHTML = `<div class="empty"><span class="big">—</span>Nothing here yet.<br>Tap + to add a stock.</div>`;
+    const msg = wlStatus==="active"
+      ? `Nothing here yet.<br>Tap + to add a stock.`
+      : `No archived items.`;
+    el.innerHTML = `<div class="empty"><span class="big">—</span>${msg}</div>`;
     return;
   }
-  el.innerHTML = rows.map(renderWatchlistCard).join("");
+  el.innerHTML = rows.map(r => renderWatchlistCard(r, wlStatus)).join("");
   el.querySelectorAll(".wl-close").forEach(btn => {
     btn.onclick = async () => {
       await sb.from("watchlist_items").update({ status:"closed" }).eq("id", btn.dataset.id);
+      loadWatchlist();
+    };
+  });
+  el.querySelectorAll(".wl-restore").forEach(btn => {
+    btn.onclick = async () => {
+      await sb.from("watchlist_items").update({ status:"active" }).eq("id", btn.dataset.id);
       loadWatchlist();
     };
   });
@@ -492,17 +515,20 @@ function badgeClass(status){
   }[status] || "flat";
 }
 
-function renderWatchlistCard(item){
+function renderWatchlistCard(item, status){
   const addedDate = new Date(item.added_at).toLocaleDateString("en-IN", { day:"numeric", month:"short" });
   const pct = item.pct_change;
   const pctStr = pct!=null ? `${pct>0?'+':''}${pct.toFixed(2)}%` : "—";
-  const status = item.computed_status || "Flat";
+  const cardStatus = item.computed_status || "Flat";
   const source = item.source_strategy || "Manual";
+  const actionBtn = status==="active"
+    ? `<button class="wl-close" data-id="${item.id}">Archive</button>`
+    : `<button class="wl-restore" data-id="${item.id}">Restore</button>`;
   return `
     <div class="card wl-card">
       <div class="top">
         <div><span class="ticker">${item.ticker}</span><span class="dir">${item.direction==='bullish'?'▲':'▼'} ${item.direction} · ${source}</span></div>
-        <span class="badge ${badgeClass(status)}">${status.toUpperCase()}</span>
+        <span class="badge ${badgeClass(cardStatus)}">${cardStatus.toUpperCase()}</span>
       </div>
       <div class="wl-meta">
         <span>ENTRY <b>${item.entry_price}</b> · ${addedDate}</span>
@@ -514,7 +540,7 @@ function renderWatchlistCard(item){
       <div class="spark-holder" id="spark-${item.id}"><div class="spark-empty">Loading chart...</div></div>
       <div class="wl-actions">
         <button class="wl-edit" data-id="${item.id}">Edit</button>
-        <button class="wl-close" data-id="${item.id}">Archive</button>
+        ${actionBtn}
       </div>
     </div>`;
 }
