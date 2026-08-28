@@ -28,8 +28,11 @@ import requests
 KNOWN_COLS = {"ticker", "score", "stage", "entry", "stop", "target"}
 
 # How many days of untracked scan history to keep around for review before
-# auto-deleting. Rows the user has tapped "track" on (tracked=true) are never
-# touched by this — those live on in watchlist_items regardless.
+# auto-deleting. Rows the user has tapped "track" on (tracked=true) are
+# skipped by this cleanup for as long as they stay tracked — the user can
+# permanently delete a tracked stock (and its scan row) anytime from the
+# Watchlist's Delete button, which also un-marks tracked so it falls back
+# into normal cleanup rotation.
 RETENTION_DAYS = 10
 
 

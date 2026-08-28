@@ -127,6 +127,7 @@
   .wl-actions{display:flex; gap:8px; margin-top:10px;}
   .wl-actions button{font-size:12px; padding:6px 10px; border-radius:6px; border:1px solid var(--hairline);
     background:var(--panel-raised); color:var(--dim); font-family:'JetBrains Mono',monospace;}
+  .wl-delete{color:var(--loss) !important; border-color:rgba(240,69,92,0.35) !important;}
 
   #fab-add{position:fixed; bottom:20px; right:20px; width:52px; height:52px; border-radius:50%;
     background:var(--gold); border:none; font-size:26px; box-shadow:0 4px 14px rgba(0,0,0,0.4); color:#0A0C10;}
@@ -461,6 +462,20 @@ async function loadWatchlist(){
       loadWatchlist();
     };
   });
+  el.querySelectorAll(".wl-delete").forEach(btn => {
+    btn.onclick = async () => {
+      const item = wlCache.find(r => r.id === btn.dataset.id);
+      if (!confirm(`Permanently delete ${item.ticker} and all its tracked price history? This can't be undone.`)) return;
+
+      await sb.from("watchlist_items").delete().eq("id", btn.dataset.id);
+      // If this came from a scan, un-mark it so it's trackable again and
+      // falls back into the normal untracked-scan cleanup rotation.
+      if (item.source_scan_id){
+        await sb.from("scan_results").update({ tracked:false }).eq("id", item.source_scan_id);
+      }
+      loadWatchlist();
+    };
+  });
   el.querySelectorAll(".wl-edit").forEach(btn => {
     btn.onclick = () => openEditForm(btn.dataset.id);
   });
@@ -541,6 +556,7 @@ function renderWatchlistCard(item, status){
       <div class="wl-actions">
         <button class="wl-edit" data-id="${item.id}">Edit</button>
         ${actionBtn}
+        <button class="wl-delete" data-id="${item.id}">Delete</button>
       </div>
     </div>`;
 }
