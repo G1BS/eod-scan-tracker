@@ -155,7 +155,7 @@
   .fetch-status.ok{color:var(--gain);}
   .fetch-status.err{color:var(--loss);}
   .spark-holder{margin-top:10px; background:var(--panel-raised); border-radius:8px; padding:6px 8px;}
-  .spark-holder .sparkline{width:100%; height:46px; display:block;}
+  .spark-holder .sparkline{width:100%; height:52px; display:block;}
   .spark-empty{font-size:11px; color:var(--dim); text-align:center; padding:14px 0;}
   #add-form .submit-row{display:flex; gap:10px; margin-top:16px;}
   #add-form .submit-row button{flex:1; padding:13px; border-radius:9px; font-size:14px; font-weight:700; border:none;}
@@ -499,28 +499,46 @@ async function loadSparkline(item){
 
   if (series.length < 2){ holder.innerHTML = `<div class="spark-empty">Chart fills in as daily prices come in.</div>`; return; }
 
-  holder.innerHTML = renderSparklineSVG(series, item.direction);
+  holder.innerHTML = renderSparklineSVG(series);
 }
 
-function renderSparklineSVG(series, direction){
-  const w = 280, h = 46, pad = 4;
+function renderSparklineSVG(series){
+  const w = 280, h = 52, pad = 6;
   const min = Math.min(...series), max = Math.max(...series);
   const range = (max - min) || 1;
-  const stepX = (w - pad*2) / (series.length - 1);
-  const favorable = direction === "bullish" ? series[series.length-1] >= series[0] : series[series.length-1] <= series[0];
-  const color = favorable ? "var(--gain)" : "var(--loss)";
+  const n = series.length;
+  const stepX = (w - pad*2) / (n - 1);
 
-  const pts = series.map((v, i) => {
-    const x = pad + i*stepX;
-    const y = h - pad - ((v - min) / range) * (h - pad*2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-  const lastPt = pts.split(" ").pop().split(",");
+  const xy = series.map((v, i) => ({
+    x: pad + i*stepX,
+    y: h - pad - ((v - min) / range) * (h - pad*2),
+  }));
 
-  return `<svg viewBox="0 0 ${w} ${h}" class="sparkline">
-    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="2.5" fill="${color}"/>
-  </svg>`;
+  const GREEN = "var(--gain)", RED = "var(--loss)";
+
+  // One colored segment per day-over-day move: green if that day closed
+  // higher than the previous day, red if lower. Flat days keep the
+  // previous segment's color so the line doesn't default to a fixed color.
+  let segments = "";
+  let lastColor = series[1] >= series[0] ? GREEN : RED;
+  for (let i = 1; i < n; i++){
+    const color = series[i] > series[i-1] ? GREEN : series[i] < series[i-1] ? RED : lastColor;
+    lastColor = color;
+    segments += `<line x1="${xy[i-1].x.toFixed(1)}" y1="${xy[i-1].y.toFixed(1)}"
+      x2="${xy[i].x.toFixed(1)}" y2="${xy[i].y.toFixed(1)}"
+      stroke="${color}" stroke-width="2" stroke-linecap="round"/>`;
+  }
+
+  // A visible dot for every day's close, colored the same as the segment arriving into it
+  let dots = `<circle cx="${xy[0].x.toFixed(1)}" cy="${xy[0].y.toFixed(1)}" r="2" fill="var(--dim)"/>`;
+  let dotColor = series[1] >= series[0] ? GREEN : RED;
+  for (let i = 1; i < n; i++){
+    dotColor = series[i] > series[i-1] ? GREEN : series[i] < series[i-1] ? RED : dotColor;
+    const r = i === n-1 ? 3 : 2;
+    dots += `<circle cx="${xy[i].x.toFixed(1)}" cy="${xy[i].y.toFixed(1)}" r="${r}" fill="${dotColor}"/>`;
+  }
+
+  return `<svg viewBox="0 0 ${w} ${h}" class="sparkline">${segments}${dots}</svg>`;
 }
 
 
